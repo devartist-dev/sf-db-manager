@@ -16,7 +16,7 @@ class PropertyGenerationOption {
     public function __construct(
         public string $propertyName,
         public string $propertyType = self::TYPE_STRING,
-        public ?int $propertyMaxLength,
+        public ?int $propertyMaxLength = null,
         public bool $isRequired = false, 
         public bool $isPropertyUnique = false,
         public ?string $relatedEntityClass = null,

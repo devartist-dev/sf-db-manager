@@ -29,14 +29,21 @@ class EntityMakerController extends AbstractController
             'Product',
             true,[
                 new PropertyGenerationOption(
-                    'title',
-                    PropertyGenerationOption::TYPE_STRING,
-                    120, true, true
+                    propertyName:'title',
+                    propertyType: PropertyGenerationOption::TYPE_STRING,
+                    propertyMaxLength: 120, 
+                    isRequired: false, 
+                    isPropertyUnique: true
                 ),
                 new PropertyGenerationOption(
-                    'price',
-                    PropertyGenerationOption::TYPE_FLOAT,
-                    null
+                    propertyName: 'price',
+                    propertyType: PropertyGenerationOption::TYPE_FLOAT
+                ),
+                new PropertyGenerationOption(
+                    propertyName: 'parent',
+                    propertyType: PropertyGenerationOption::TYPE_ONE_TO_ONE,
+                    relatedEntityClass: "App\\Entity\\Product",
+                    orphanRemoval: true
                 ),
             ]
         );
