@@ -9,6 +9,7 @@ class EntityGenerationOption
     public function __construct(
         public string $entityName,
         public bool $apiResources,
+        public bool $regenerate = false,
         public array $properties = [],
         public bool $overwrite = true,
     ) {

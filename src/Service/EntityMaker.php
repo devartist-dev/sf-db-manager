@@ -16,20 +16,21 @@ use Symfony\Bundle\MakerBundle\Str;
 use ApiPlatform\Metadata\ApiResource;
 use App\Class\EntityGenerationOption;
 use App\Class\PropertyGenerationOption;
+use App\Service\ClassSourceManipulator;
 use Symfony\Bundle\MakerBundle\Generator;
 use Symfony\Bundle\MakerBundle\Validator;
 use Symfony\Bundle\MakerBundle\FileManager;
 use Symfony\Bundle\MakerBundle\MakerInterface;
 use Symfony\Bundle\MakerBundle\DependencyBuilder;
 use Symfony\Bundle\MakerBundle\Util\ClassDetails;
+use Symfony\Component\Serializer\Attribute\Groups;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Bundle\MakerBundle\Doctrine\DoctrineHelper;
 use Symfony\Bundle\MakerBundle\Doctrine\EntityRelation;
-use Symfony\Bundle\MakerBundle\Util\ClassSourceManipulator;
+use Symfony\Bundle\MakerBundle\Doctrine\EntityRegenerator;
 use Symfony\Bundle\MakerBundle\Doctrine\EntityClassGenerator;
 use Symfony\Bundle\MakerBundle\Doctrine\ORMDependencyBuilder;
 use Symfony\Bundle\MakerBundle\Util\ClassSource\Model\ClassProperty;
-
 
 /**
  * @author Javier Eguiluz <javier.eguiluz@gmail.com>
@@ -69,7 +70,6 @@ class EntityMaker
         }
     }
 
-
     public function generate(EntityGenerationOption $options, Generator $generator): GenerationState
     {
         $overwrite = $options->overwrite;
@@ -78,6 +78,11 @@ class EntityMaker
             $options->entityName,
             'Entity\\'
         );
+
+        if ($options->regenerate) {
+            $this->regenerateEntities($entityClassDetails->getFullName(), $overwrite, $generator);
+            return GenerationState::SUCCESS;
+        }
 
         $classExists = class_exists($entityClassDetails->getFullName());
         if (!$classExists) {
@@ -99,8 +104,22 @@ class EntityMaker
 
         $currentFields = $this->getPropertyNames($entityClassDetails->getFullName());
         $manipulator = $this->createClassManipulator($entityPath, $overwrite);
+        
+        // We will manage api props here
+        // $manipulator->addAttributeToClass(ApiResource::class,[
+        //     'description' => 'Entity of product'
+        // ]);
+
 
         $isFirstField = true;
+
+        $defaultAttributes = [
+            $manipulator->buildAttributeNode(Groups::class,['groups' => [
+                $entityClassDetails->getShortName().":read", 'product:edit', 'product:write', 'product:delete'
+            ]])
+        ];
+
+        $manipulator->addUseStatementIfNecessary(Groups::class);
 
         foreach ($options->properties as $propsOptions) {
             $newField = $this->askForNextField($propsOptions, $currentFields, $entityClassDetails->getFullName(), $isFirstField);
@@ -114,8 +133,10 @@ class EntityMaker
             $fileManagerOperations[$entityPath] = $manipulator;
 
             if ($newField instanceof ClassProperty) {
-                $manipulator->addEntityField($newField);
 
+
+                $manipulator->addEntityField($newField,$defaultAttributes);
+                
                 $currentFields[] = $newField->propertyName;
             } elseif ($newField instanceof EntityRelation) {
                 // both overridden below for OneToMany
@@ -131,10 +152,10 @@ class EntityMaker
                     case EntityRelation::MANY_TO_ONE:
                         if ($newField->getOwningClass() === $entityClassDetails->getFullName()) {
                             // THIS class will receive the ManyToOne
-                            $manipulator->addManyToOneRelation($newField->getOwningRelation());
+                            $manipulator->addManyToOneRelation($newField->getOwningRelation(),$defaultAttributes);
 
                             if ($newField->getMapInverseRelation()) {
-                                $otherManipulator->addOneToManyRelation($newField->getInverseRelation());
+                                $otherManipulator->addOneToManyRelation($newField->getInverseRelation(),$defaultAttributes);
                             }
                         } else {
                             // the new field being added to THIS entity is the inverse
@@ -143,25 +164,25 @@ class EntityMaker
                             $otherManipulator = $this->createClassManipulator($otherManipulatorFilename, $overwrite);
 
                             // The *other* class will receive the ManyToOne
-                            $otherManipulator->addManyToOneRelation($newField->getOwningRelation());
+                            $otherManipulator->addManyToOneRelation($newField->getOwningRelation(),$defaultAttributes);
                             if (!$newField->getMapInverseRelation()) {
                                 throw new \Exception('Somehow a OneToMany relationship is being created, but the inverse side will not be mapped?');
                             }
-                            $manipulator->addOneToManyRelation($newField->getInverseRelation());
+                            $manipulator->addOneToManyRelation($newField->getInverseRelation(),$defaultAttributes);
                         }
 
                         break;
                     case EntityRelation::MANY_TO_MANY:
-                        $manipulator->addManyToManyRelation($newField->getOwningRelation());
+                        $manipulator->addManyToManyRelation($newField->getOwningRelation(),$defaultAttributes);
                         if ($newField->getMapInverseRelation()) {
-                            $otherManipulator->addManyToManyRelation($newField->getInverseRelation());
+                            $otherManipulator->addManyToManyRelation($newField->getInverseRelation(),$defaultAttributes);
                         }
 
                         break;
                     case EntityRelation::ONE_TO_ONE:
-                        $manipulator->addOneToOneRelation($newField->getOwningRelation());
+                        $manipulator->addOneToOneRelation($newField->getOwningRelation(), $defaultAttributes);
                         if ($newField->getMapInverseRelation()) {
-                            $otherManipulator->addOneToOneRelation($newField->getInverseRelation());
+                            $otherManipulator->addOneToOneRelation($newField->getInverseRelation(), $defaultAttributes);
                         }
 
                         break;
@@ -180,7 +201,7 @@ class EntityMaker
 
             foreach ($fileManagerOperations as $path => $manipulatorOrMessage) {
                 if (\is_string($manipulatorOrMessage)) {
-                    
+                    GenerationState::FAILURE;
                 } else {
                     $this->fileManager->dumpFile($path, $manipulatorOrMessage->getSourceCode());
                 }
@@ -235,7 +256,6 @@ class EntityMaker
 
         return $classProperty;
     }
-
 
     private function askRelationDetails(string $generatedEntityClass, PropertyGenerationOption $options): EntityRelation
     {
@@ -368,6 +388,12 @@ class EntityMaker
         );
 
         return $manipulator;
+    }
+
+    private function regenerateEntities(string $classOrNamespace, bool $overwrite, Generator $generator): void
+    {
+        $regenerator = new EntityRegenerator($this->doctrineHelper, $this->fileManager, $generator, $this->entityClassGenerator, $overwrite);
+        $regenerator->regenerateEntities($classOrNamespace);
     }
 
     private function getPathOfClass(string $class): string

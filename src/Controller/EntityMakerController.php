@@ -24,10 +24,29 @@ class EntityMakerController extends AbstractController
     #[Route('/test-entity-maker', name: 'app_entity_maker')]
     public function index(): Response
     {
+        $entityAOption = new EntityGenerationOption(
+            entityName: 'Category',
+            apiResources: true,
+            properties: [
+                new PropertyGenerationOption(
+                    propertyName:'name',
+                    propertyType: PropertyGenerationOption::TYPE_STRING,
+                    isRequired: true, 
+                    isPropertyUnique: true
+                ),
+                new PropertyGenerationOption(
+                    propertyName: 'parent',
+                    propertyType: PropertyGenerationOption::TYPE_ONE_TO_ONE,
+                    relatedEntityClass: "App\\Entity\\Category",
+                    orphanRemoval: true
+                ),
+            ]
+        );
 
-        $entityOption = new EntityGenerationOption(
-            'Product',
-            true,[
+        $entityBOption = new EntityGenerationOption(
+            entityName: 'Product',
+            apiResources: true,
+            properties: [
                 new PropertyGenerationOption(
                     propertyName:'title',
                     propertyType: PropertyGenerationOption::TYPE_STRING,
@@ -41,16 +60,24 @@ class EntityMakerController extends AbstractController
                 ),
                 new PropertyGenerationOption(
                     propertyName: 'parent',
-                    propertyType: PropertyGenerationOption::TYPE_ONE_TO_ONE,
+                    propertyType: PropertyGenerationOption::TYPE_MANY_TO_ONE,
                     relatedEntityClass: "App\\Entity\\Product",
                     orphanRemoval: true
+                ),
+                new PropertyGenerationOption(
+                    propertyName: 'category',
+                    propertyType: PropertyGenerationOption::TYPE_MANY_TO_ONE,
+                    relatedEntityClass: "App\\Entity\\Category",
+                    orphanRemoval: false,
+                    isRequired: true,
                 ),
             ]
         );
 
         // dd($entityOption);
 
-        $this->entityMaker->generate($entityOption,$this->generator);
+        $this->entityMaker->generate($entityAOption,$this->generator);
+        $this->entityMaker->generate($entityBOption,$this->generator);
 
         return $this->render('entity_maker/index.html.twig', [
             'controller_name' => 'EntityMakerController',
